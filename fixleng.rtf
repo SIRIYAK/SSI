@@ -1,0 +1,260 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2709
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fmodern\fcharset0 CourierNewPSMT;\f1\fmodern\fcharset0 CourierNewPS-BoldMT;}
+{\colortbl;\red255\green255\blue255;\red0\green128\blue0;\red0\green0\blue128;\red0\green0\blue255;
+\red0\green128\blue128;\red128\green0\blue128;}
+{\*\expandedcolortbl;;\csgenericrgb\c0\c50196\c0;\csgenericrgb\c0\c0\c50196;\csgenericrgb\c0\c0\c100000;
+\csgenericrgb\c0\c50196\c50196;\csgenericrgb\c50196\c0\c50196;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\deftab720
+\pard\pardeftab720\partightenfactor0
+
+\f0\fs20 \cf0 \
+\
+\
+\
+\cf2 /**************************************************************/\cf0 \
+\cf2 /* Name of the code: FIXLENG?\
+/* Location of the code: J:\\siriyak\\QC\
+/* Author's name: siriyak cr\
+/* Date Created: 21 sep 2023\
+/* Objective: utility macro to shrink character variable lengths\
+/* Validation approach: Self review?\
+/* Version history including date:\
+Ver#  Independent Programmer Date     Code History Description\
+---- ------------------------         ------------------------\
+1.0   siriyak cr  21 sep 2023       Original version of the code\
+\
+/* How to call the macro START **********************************\
+%include "J:\\siriyak\\QC\\fixleng.sas";\
+\
+proc sql noprint;\
+  select distinct memname into : name_list separated by ' ' from dictionary.tables where libname="WORK";\
+quit;\
+%put &name_list;\
+\
+For Single dataset (Example): \
+%fixleng(data=WORK.patient_test, update=yes); *ommit this if calling for whole library;\
+\
+For all datasets in a library:\
+%macro execute_allds();\
+%do i=1 %to %sysfunc(countw(&name_list));\
+   %let next_name = %scan(&name_list, &i);\
+   %fixleng(data=&next_name, update=yes);\
+%end;\
+%mend execute_allds;\
+%execute_allds;\
+\
+/* How to call the macro  END *********************************/\cf0 \
+\
+\cf2 /**************************************************************/\cf0 \
+\
+
+\f1\b \cf3 %macro
+\f0\b0 \cf0  fixleng(data=, update=no);\
+ \cf4 %local\cf0  data_upcase library_name member_name character_vars length_character_vars num_charvars i;\
+ \cf2 /******************************************************************\
+ Section One. Process the user-specified data set.\
+ *******************************************************************/\cf0 \
+ \cf4 %if\cf0  &data= \cf4 %then\cf0  \cf4 %do\cf0 ;\
+ \cf4 %put\cf0  NOTE: Data set not specified, macro ends;\
+ \cf4 %return\cf0 ;\
+ \cf4 %end\cf0 ;\
+ \cf4 %let\cf0  update=\cf4 %UPCASE\cf0 (&update); \cf2 /* Make uppercase for simplicity */\cf0 \
+ \cf2 /* Convert data set name to upper case to match value in\
+ DICTIONARY table, then determine library and member name. */\cf0 \
+ \cf4 %let\cf0  data_upcase = \cf4 %upcase\cf0 (&data);\
+ \cf4 %let\cf0  member_name=\cf4 %scan\cf0 (&data_upcase, -1, \cf4 %str\cf0 (.));\
+ \cf4 %let\cf0  library_name=\cf4 %scan\cf0 (&data_upcase, 1, \cf4 %str\cf0 (.));\
+ \cf4 %if\cf0  &library_name = &member_name \cf4 %then\cf0  \cf4 %let\cf0  library_name=WORK;\
+ \cf2 /******************************************************************\
+ Section Two. Copy character variables and their lengths to macro\
+ variables; terminate if no character variables.\
+ *******************************************************************/\cf0 \
+ Proc sql noprint;\
+ select count(*) into:num_rec from &data_upcase; quit;\
+ \
+ \cf4 %if\cf0  &num_rec=
+\f1\b \cf5 0
+\f0\b0 \cf0  \cf4 %then\cf0  \cf4 %do\cf0 ;\
+ \cf4 %put\cf0  NOTE: No records in data set &data, macro ends;\
+ \cf4 %goto\cf0  exit;\
+ \cf4 %end\cf0 ;\
+\
+ proc sql noprint;\
+ select name, length\
+ into :character_vars separated by \cf6 ' '\cf0 ,\
+ :length_character_vars separated by \cf6 ' '\cf0 \
+ from dictionary.columns\
+ where libname=\cf6 "&library_name"\cf0 \
+ and memname=\cf6 "&member_name"\cf0  and name not in (\cf6 "CHAI_PATIENT_ID"\cf0 )\
+ and type = \cf6 "char"\cf0 ;\
+ \cf4 %let\cf0  num_charvars=&sqlobs;\
+ quit;\
+ \cf4 %if\cf0  &num_charvars=
+\f1\b \cf5 0
+\f0\b0 \cf0  \cf4 %then\cf0  \cf4 %do\cf0 ;\
+ \cf4 %put\cf0  NOTE: No character variables in data set &data, macro ends;\
+ \cf4 %return\cf0 ;\
+ \cf4 %end\cf0 ;\
+ \cf2 /******************************************************************\
+ Section Three. Process the user-specified data set.\
+ *******************************************************************/\cf0 \
+ data _null_;\
+ set &data end=last;\
+ array char_vars (&num_charvars) $
+\f1\b \cf5 32
+\f0\b0 \cf0  &character_vars;\
+ array char_vars_length (&num_charvars) _temporary_ (&length_character_vars);\
+ array char_vars_max_length (&num_charvars) _temporary_ (&num_charvars*
+\f1\b \cf5 1
+\f0\b0 \cf0 );\
+length varname $
+\f1\b \cf5 32
+\f0\b0 \cf0 ;\
+ do i = 
+\f1\b \cf5 1
+\f0\b0 \cf0  to dim(char_vars);\
+ char_vars_max_length(i) =\
+ max(length(char_vars(i)), char_vars_max_length(i));\
+ end;\
+ \cf2 /******************************************************************\
+ Section Four. Determine if any character variables can be shortened:\
+ if not, print a message and terminate, otherwise proceed.\
+ *******************************************************************/\cf0 \
+ if last then do;\
+ do i = 
+\f1\b \cf5 1
+\f0\b0 \cf0  to dim(char_vars) while\
+ (char_vars_length(i) = char_vars_max_length(i));\
+ end;\
+ if i = dim(char_vars)+
+\f1\b \cf5 1
+\f0\b0 \cf0 \
+ then put \cf6 "NOTE: all variables are minimum length, no action taken"\cf0 ;\
+ else do;\
+ \cf2 /***************************************************************\
+ Section Five. Print a character variable length report and\
+ generate SAS code to reduce length of character variables.\
+ ***************************************************************/\cf0 \
+ \cf2 /* Print header for length report */\cf0 \
+ put @
+\f1\b \cf5 1
+\f0\b0 \cf0  \cf6 "Variable length for all character variables in data set\
+&data:"\cf0  //\
+ @
+\f1\b \cf5 1
+\f0\b0 \cf0  \cf6 "Variable"\cf0  @
+\f1\b \cf5 34
+\f0\b0 \cf0  \cf6 "Variable"\cf0  @
+\f1\b \cf5 44
+\f0\b0 \cf0  \cf6 "Longest length in"\cf0 \
+ @
+\f1\b \cf5 63
+\f0\b0 \cf0  \cf6 "Shorten?"\cf0 /\
+ @
+\f1\b \cf5 34
+\f0\b0 \cf0  \cf6 "length"\cf0  @
+\f1\b \cf5 44
+\f0\b0 \cf0  \cf6 "any observation"\cf0 ;\
+\
+ ii=
+\f1\b \cf5 0
+\f0\b0 \cf0 ; \cf2 /* count number of LENGTH statements */\cf0 \
+ do i=
+\f1\b \cf5 1
+\f0\b0 \cf0  to dim(char_vars);\
+ varname = vname(char_vars(i));\
+ \cf2 /* Print length report */\cf0 \
+ if char_vars_max_length(i) = char_vars_length(i)\
+ then put @
+\f1\b \cf5 1
+\f0\b0 \cf0  varname @
+\f1\b \cf5 34
+\f0\b0 \cf0  char_vars_length(i) 
+\f1\b \cf5 5.
+\f0\b0 \cf0  -r\
+ @
+\f1\b \cf5 44
+\f0\b0 \cf0  char_vars_max_length(i) 
+\f1\b \cf5 5.
+\f0\b0 \cf0  -r;\
+ else do;\
+ \cf2 /* Current variable will be shortened */\cf0 \
+ put @
+\f1\b \cf5 1
+\f0\b0 \cf0  varname @
+\f1\b \cf5 34
+\f0\b0 \cf0  char_vars_length(i) 
+\f1\b \cf5 5.
+\f0\b0 \cf0  -r\
+ @
+\f1\b \cf5 44
+\f0\b0 \cf0  char_vars_max_length(i) 
+\f1\b \cf5 5.
+\f0\b0 \cf0  -r @
+\f1\b \cf5 63
+\f0\b0 \cf0  \cf6 "shorten"\cf0 ;\
+ length_statement=cat(\cf6 "length "\cf0 ,varname,\cf6 " $"\cf0 ,\
+ char_vars_max_length(i),\cf6 ";"\cf0 );\
+ \cf2 /* Generate macro variables containing LENGTH statements to\
+ shorten variables for subsequent execution or display. */\cf0 \
+ ii=ii+
+\f1\b \cf5 1
+\f0\b0 \cf0 ; \cf2 /* count number of LENGTH statements */\cf0 \
+ call symput(\cf6 "lengthtrim"\cf0  || compress(put(ii,
+\f1\b \cf5 5.
+\f0\b0 \cf0 )),\
+ compbl(length_statement));\
+ end; \cf2 /* of else do*/\cf0 \
+ end; \cf2 /* of do for do i = dim(char_vars) */\cf0 \
+ end; \cf2 /* of else do for if i = dim(char_vars)+1 */\cf0 \
+ call symputx(\cf6 "num_lengthtrim"\cf0 ,ii); \cf2 /* how many LENGTH statements */\cf0 \
+end; \cf2 /* of if last then do; */\cf0 \
+ run;\
+ \cf2 /******************************************************************\
+ Section Six. Either submit or display (but do not submit) the code\
+ to reduce the length of the character variables.\
+ *******************************************************************/\cf0 \
+ \cf4 %if\cf0  &update=yes \cf4 %then\cf0  \cf4 %do\cf0 ; \cf2 /* Update data set with shorter lengths */\cf0 \
+\
+ OPTIONS VARLENCHK=NOWARN;\
+\
+ data &data(compress=char encoding=any);\
+ \cf4 %do\cf0  i= 
+\f1\b \cf5 1
+\f0\b0 \cf0  \cf4 %to\cf0  &num_lengthtrim;\
+ &&lengthtrim&i;\
+ \cf4 %end\cf0 ;\
+ set &data(encoding=any);\
+ run;\
+ \cf2 /**** Handle CHAI_PATIENT_ID *******/\cf0 \
+ data &data(rename=(CHAI_PATIENT_ID_=chai_patient_id));\
+ length SUBJID_ \cf5 $100.\cf0 ;\
+ set &data;\
+ CHAI_PATIENT_ID_=strip(CHAI_PATIENT_ID);\
+ drop CHAI_PATIENT_ID;\
+ run;\
+\
+ OPTIONS VARLENCHK=WARN;\
+\
+\cf2 /**** Handle CHAI_PATIENT_ID*******/\cf0 \
+ \cf4 %put\cf0  NOTE: Character variables in data set &data shortened;\
+ \cf4 %end\cf0 ; \cf2 /* of %if &update=yes %then %do; */\cf0 \
+\
+ \cf4 %else\cf0  \cf4 %do\cf0 ; \cf2 /* Display but do not submit code that reduces lengths */\cf0 \
+ \cf4 %put\cf0  Data set &data not changed, DATA step statements to shrink\
+character variables are:;\
+ \cf4 %put\cf0  ;\
+ \cf4 %put\cf0  data &data \cf4 %str\cf0 (;);\
+ \cf4 %do\cf0  i= 
+\f1\b \cf5 1
+\f0\b0 \cf0  \cf4 %to\cf0  &num_lengthtrim;\
+ \cf4 %put\cf0  &&lengthtrim&i;\
+ \cf4 %end\cf0 ;\
+ \cf4 %put\cf0  set &data \cf4 %str\cf0 (;);\
+ \cf4 %put\cf0  run \cf4 %str\cf0 (;);\
+ \cf4 %end\cf0 ; \cf2 /* of %else %do for %if &update=yes %then %do; */\cf0 \
+ %exit:
+\f1\b \cf3 %mend
+\f0\b0 \cf0  fixleng;\
+}
